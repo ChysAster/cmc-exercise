@@ -1,0 +1,87 @@
+name: Infra-Bicep-Release
+
+on:
+  push:
+    paths:
+      - infra-bicep/**
+
+  workflow_dispatch:
+
+env: 
+  FOLDERNAME: infra-bicep
+  DEPLOYMENTNAME: Infra-Bicep
+  GITHUB_RUN_NUMBER: ${{ github.run_number }}
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  AZURE_RESOURCE_GROUP_SHARED: ${{ vars.AZURE_RESOURCE_GROUP_SHARED }}
+  ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+  ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+  AZURE_RESOURCE_GROUP: RG_Aster.Chys
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    name: "Validate Templates"
+    environment: Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout source code"
+        uses: actions/checkout@v3
+
+      - name: "Login to Azure"
+        uses: azure/login@v1
+        with:
+          enable-AzPSSession: true
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: "Validate Infra Template"
+        uses: azure/powershell@v1
+        with:
+          azPSVersion: "latest"
+          inlineScript: | 
+            az bicep restore --file ${{ env.FOLDERNAME }}/main.bicep
+            az deployment group validate `
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} `
+              --template-file ${{ env.FOLDERNAME }}/main.bicep `
+              --parameters ${{ env.FOLDERNAME }}/main.bicepparam
+
+      - name: "Upload Artifacts"
+        uses: actions/upload-artifact@v3
+        with:
+          name: bicep-artifact
+          path: ${{ github.workspace }}/${{ env.FOLDERNAME }}
+
+  release-prd:
+    name: "Production"
+    environment: Production
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: "Download Build Artifact"
+        uses: actions/download-artifact@v3
+        with:
+          name: bicep-artifact
+
+      - name: "Login to Azure"
+        uses: azure/login@v1
+        with:
+          enable-AzPSSession: true
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: "Release Azure Components"
+        uses: azure/powershell@v1
+        with:
+          azPSVersion: "latest"
+          failOnStandardError: true
+          inlineScript: | 
+            az bicep restore --file main.bicep
+            az deployment group create `
+              --name Deploy-${{ env.DEPLOYMENTNAME }}-${{ github.run_number }} `
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} `
+              --template-file main.bicep `
+              --parameters main.bicepparam

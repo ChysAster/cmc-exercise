@@ -1,0 +1,118 @@
+name: Infra-Terraform-Release
+
+on: 
+  push:
+    paths:
+      - infra-terraform/**
+  
+  workflow_dispatch:
+
+env: 
+  FOLDERNAME: infra-terraform
+  DEPLOYMENTNAME: Infra-Terraform
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    name: "Validate Templates"
+    runs-on: windows-latest
+    environment: Validation
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ env.FOLDERNAME }}
+    steps:
+      - name: "Checkout source code"
+        uses: actions/checkout@v3
+
+      - name: "Login to Azure"
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+
+      - name: "Terraform Init"
+        run: terraform init
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_USE_OIDC: true
+          TF_VAR_DOCKER_REGISTRY_SERVER_URL: ${{ vars.ACR_NAME }}
+          TF_VAR_DOCKER_REGISTRY_SERVER_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+          TF_VAR_DOCKER_REGISTRY_SERVER_USERNAME: ${{ secrets.ACR_USERNAME }}
+
+      - name: "Terraform Format"
+        run: terraform fmt -check
+
+      - name: "Terraform Plan"
+        run: terraform plan -input=false
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_USE_OIDC: true
+          TF_VAR_DOCKER_REGISTRY_SERVER_URL: ${{ vars.ACR_NAME }}
+          TF_VAR_DOCKER_REGISTRY_SERVER_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+          TF_VAR_DOCKER_REGISTRY_SERVER_USERNAME: ${{ secrets.ACR_USERNAME }}
+
+      - name: "Upload Artifact"
+        uses: actions/upload-artifact@v3
+        with:
+          name: terraform-artifact
+          path: ${{ github.workspace }}
+
+  release-prd:
+    name: "Production"
+    environment: Production
+    needs: build
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ env.FOLDERNAME }}
+    steps:
+      - name: "Download Artifact"
+        uses: actions/download-artifact@v3
+        with:
+          name: terraform-artifact
+
+      - name: "Login to Azure"
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+
+      - name: "Terraform Init"
+        run: terraform init
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_USE_OIDC: true
+          TF_VAR_DOCKER_REGISTRY_SERVER_URL: ${{ vars.ACR_NAME }}
+          TF_VAR_DOCKER_REGISTRY_SERVER_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+          TF_VAR_DOCKER_REGISTRY_SERVER_USERNAME: ${{ secrets.ACR_USERNAME }}
+
+      - name: "Terraform Apply"
+        run: terraform apply -auto-approve -input=false
+        env: 
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_USE_OIDC: true
+          TF_VAR_DOCKER_REGISTRY_SERVER_URL: ${{ vars.ACR_NAME }}
+          TF_VAR_DOCKER_REGISTRY_SERVER_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+          TF_VAR_DOCKER_REGISTRY_SERVER_USERNAME: ${{ secrets.ACR_USERNAME }}
