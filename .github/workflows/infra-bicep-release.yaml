@@ -49,7 +49,7 @@ jobs:
               --parameters ${{ env.FOLDERNAME }}/main.bicepparam
 
       - name: "Upload Artifacts"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: bicep-artifact
           path: ${{ github.workspace }}/${{ env.FOLDERNAME }}
